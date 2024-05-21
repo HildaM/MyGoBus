@@ -195,3 +195,60 @@ func TestSubscribeAsync(t *testing.T) {
 		t.Errorf("Expected 2 results, got %d", finalResults)
 	}
 }
+
+func TestPubSub_Unsubscribe(t *testing.T) {
+	capacity, testIndex := 100, 76
+	bus := New()
+	topicName := "TestPubSub_UnSubscribe"
+
+	chs := make([]chan bool, capacity)
+	for i := 0; i < capacity; i++ {
+		chs[i] = make(chan bool, 1) // 初始化每个通道，缓冲大小为1
+	}
+
+	// 创建多个函数，每个函数内部都有相同的指针引用
+	funcs := make([]func(event bool), capacity) // 创建一个函数切片，用于存储订阅的函数
+	for i := 0; i < capacity; i++ {
+		i := i                  // 创建局部变量i，避免闭包中使用外部循环变量i
+		f := func(event bool) { // 定义一个匿名函数，接收一个布尔类型的事件
+			chs[i] <- event // 将事件发送到对应的通道中
+		}
+		funcs[i] = f
+		bus.Subscribe(topicName, f)
+	}
+
+	// 发布消息，并检查是否收到信号
+	bus.Publish(topicName, true)
+	for i := 0; i < capacity; i++ {
+		select {
+		case <-chs[i]: // 尝试从通道中接收消息
+			// 信号接收成功
+		case <-time.After(time.Millisecond): // 如果在指定时间内没有接收到消息，则认为测试失败
+			t.Errorf("(%d) signal should be received before Unsubscribe", i)
+		}
+	}
+
+	bus.UnSubscribe(topicName, funcs[testIndex]) // 取消订阅，传入主题名称和要取消订阅的函数
+
+	// 再次发布消息，并检查是否未收到信号
+	bus.Publish(topicName, true)
+	select {
+	case <-chs[testIndex]: // 尝试从被取消订阅的通道中接收消息
+		t.Error("signal should not be received") // 如果接收到消息，则测试失败
+	case <-time.After(time.Millisecond): // 如果在指定时间内没有接收到消息，则认为成功
+		// 信号未接收
+	}
+
+	// 检查其他所有信号是否接收
+	for i := 0; i < capacity-1; i++ {
+		select {
+		case <-chs[i]: // 尝试从通道中接收消息
+			// 信号接收成功
+		case <-time.After(time.Millisecond): // 如果在指定时间内没有接收到消息
+			if i == testIndex {
+				continue // 如果是已取消订阅的索引，则跳过
+			}
+			t.Errorf("(%d) signal should be received after Unsubscribe", i)
+		}
+	}
+}
