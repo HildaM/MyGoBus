@@ -1,18 +1,12 @@
-# MyGoBus 事件总线
+# MyGoBus --- Lightweight eventbus with async compatibility for Go
 
 ## What it is
 
-MyGoBus 是一种在软件开发中使用的发布/订阅（pub/sub）消息传递系统。
-
-它允许不同组件之间通过事件进行通信，而无需显式地知道彼此的存在，从而实现了组件间的解耦。
-
-在 MyGoBus 系统中，事件的发布者（或称为发送者）发布特定事件到 MyGoBus，而事件的订阅者（或称为接收者）订阅这些事件并对其进行处理。
+Package EventBus is the little and lightweight eventbus with async compatibility for GoLang.
 
 ## Feature
 
-MyGoBus 支持 本地事件 和 网络事件。它们分别位于
-- event.go
-- network.go
+Based on [EventBus](https://github.com/asaskevich/EventBus), but fixed many error on original repo.
 
 ## QuickStart
 ### Installation
