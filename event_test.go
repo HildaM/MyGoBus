@@ -271,3 +271,20 @@ func TestNestedPublish(t *testing.T) {
 	bus.Publish("main:calculator", 20, 40)
 	bus.UnSubscribe("main:calculator", nestedFunc)
 }
+
+func TestSubscribeAsyncWithMultipleGoroutine(t *testing.T) {
+	for i := 0; i < 1200; i++ {
+		bus := New()
+		bus.SubscribeAsync("topic", func() {
+			time.Sleep(time.Millisecond)
+		}, false)
+		bus.Publish("topic")
+
+		go func() {
+			time.Sleep(time.Millisecond)
+			bus.Publish("topic")
+		}()
+
+		bus.WaitAsync()
+	}
+}

@@ -232,5 +232,10 @@ func (bus *EventBus) HasCallBack(topic string) bool {
 
 // WaitAsync waits for all async callbacks to complete
 func (bus *EventBus) WaitAsync() {
+	// Because of wg's counter can't be a negative number,
+	// if call Wait() and then call Add(1) before Wait() complete, it will throw a panic "WaitGroup is reused before previous Wait has returned".
+	// See event_test.go TestSubscribeAsyncWithMultipleGoroutine()
+	bus.lock.Lock()
+	defer bus.lock.Unlock()
 	bus.wg.Wait()
 }
