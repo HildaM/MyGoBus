@@ -54,7 +54,8 @@ func (client *Client) Start() error {
 		server.Register(service)
 		server.HandleHTTP(client.path, "/debug"+client.path)
 
-		l, err := net.Listen("tcp", client.address)
+		var l net.Listener
+		l, err = net.Listen("tcp", client.address)
 		if err == nil {
 			service.wg.Add(1)
 			service.started = true
