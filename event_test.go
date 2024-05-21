@@ -1,6 +1,7 @@
 package MyGoBus
 
 import (
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -251,4 +252,22 @@ func TestPubSub_Unsubscribe(t *testing.T) {
 			t.Errorf("(%d) signal should be received after Unsubscribe", i)
 		}
 	}
+}
+
+// based on https://github.com/asaskevich/EventBus/issues/35
+// Test for nested publishment. If failed, it may cause dead lock
+func TestNestedPublish(t *testing.T) {
+	bus := New()
+	nestedFunc := func(a, b int) {
+		fmt.Printf("%d\n", a+b)
+
+		if a == 20 {
+			// try to get lock from previous Publish function call
+			bus.Publish("main:calculator", a+1, b)
+		}
+	}
+
+	bus.Subscribe("main:calculator", nestedFunc)
+	bus.Publish("main:calculator", 20, 40)
+	bus.UnSubscribe("main:calculator", nestedFunc)
 }

@@ -43,7 +43,7 @@ type EventBus struct {
 // eventHandler single event handler
 type eventHandler struct {
 	callBack      reflect.Value
-	flagOnce      bool
+	once          *sync.Once
 	async         bool
 	transactional bool
 	sync.Mutex    // lock for event handler, useful for running async callbacks
@@ -75,7 +75,7 @@ func (bus *EventBus) doSubscribe(topic string, fn interface{}, handler *eventHan
 // Returns error if `fn` is not a function.
 func (bus *EventBus) Subscribe(topic string, fn interface{}) error {
 	return bus.doSubscribe(topic, fn, &eventHandler{
-		reflect.ValueOf(fn), false, false, false, sync.Mutex{},
+		reflect.ValueOf(fn), nil, false, false, sync.Mutex{},
 	})
 }
 
@@ -85,7 +85,7 @@ func (bus *EventBus) Subscribe(topic string, fn interface{}) error {
 // Returns error if `fn` is not a function.
 func (bus *EventBus) SubscribeAsync(topic string, fn interface{}, transactional bool) error {
 	return bus.doSubscribe(topic, fn, &eventHandler{
-		reflect.ValueOf(fn), false, true, transactional, sync.Mutex{},
+		reflect.ValueOf(fn), nil, true, transactional, sync.Mutex{},
 	})
 }
 
@@ -93,7 +93,7 @@ func (bus *EventBus) SubscribeAsync(topic string, fn interface{}, transactional 
 // Returns error if `fn` is not a function.
 func (bus *EventBus) SubscribeOnce(topic string, fn interface{}) error {
 	return bus.doSubscribe(topic, fn, &eventHandler{
-		reflect.ValueOf(fn), true, false, false, sync.Mutex{},
+		reflect.ValueOf(fn), new(sync.Once), false, false, sync.Mutex{},
 	})
 }
 
@@ -102,7 +102,7 @@ func (bus *EventBus) SubscribeOnce(topic string, fn interface{}) error {
 // Returns error if `fn` is not a function.
 func (bus *EventBus) SubscribeOnceAsync(topic string, fn interface{}) error {
 	return bus.doSubscribe(topic, fn, &eventHandler{
-		reflect.ValueOf(fn), true, true, false, sync.Mutex{},
+		reflect.ValueOf(fn), new(sync.Once), true, false, sync.Mutex{},
 	})
 }
 
@@ -152,39 +152,50 @@ func (bus *EventBus) findHandlerIndex(topic string, callBack reflect.Value) int 
 
 // Publish executes callback defined for a topic. Any additional argument will be transferred to the callback.
 func (bus *EventBus) Publish(topic string, args ...interface{}) {
+	// Handlers slice may be changed by removeHandler and Unsubscribe during iteration,
+	// so make a copy and iterate the copied slice.
 	bus.lock.Lock()
-	defer bus.lock.Unlock()
+	handlers := bus.handlers[topic]
+	copyHanlders := make([]*eventHandler, len(handlers))
+	copy(copyHanlders, handlers)
+	bus.lock.Unlock()
 
-	if handlers, ok := bus.handlers[topic]; ok && len(handlers) > 0 {
-		// Handlers slice may be changed by removeHandler and Unsubscribe during iteration,
-		// so make a copy and iterate the copied slice.
-		copyHandlers := make([]*eventHandler, len(handlers))
-		copy(copyHandlers, handlers)
+	for _, handler := range copyHanlders {
+		if !handler.async {
+			bus.doPublish(handler, topic, args...)
+		} else {
+			bus.wg.Add(1)
 
-		for i, handler := range copyHandlers {
-			if handler.flagOnce {
-				bus.removeHandler(topic, i)
+			if handler.transactional {
+				handler.Lock()
 			}
-
-			if !handler.async {
-				bus.doPublish(handler, topic, args...)
-			} else {
-				bus.wg.Add(1)
-				// if transactional, hanlder should lock
-				if handler.transactional {
-					bus.lock.Unlock()
-					handler.Lock()
-					bus.lock.Lock()
-				}
-				go bus.doPublishAsync(handler, topic, args...)
-			}
+			go bus.doPublishAsync(handler, topic, args...)
 		}
 	}
 }
 
 func (bus *EventBus) doPublish(handler *eventHandler, topic string, args ...interface{}) {
 	passedArguments := bus.setUpPublish(handler, args...)
-	handler.callBack.Call(passedArguments)
+
+	if handler.once == nil {
+		handler.callBack.Call(passedArguments)
+		return
+	}
+
+	handler.once.Do(func() {
+		// remove handler already processed
+		bus.lock.Lock()
+		for idx, h := range bus.handlers[topic] {
+			// compare pointers since pointers are unique for all members of slice
+			if h.once == handler.once {
+				bus.removeHandler(topic, idx)
+				break
+			}
+		}
+		bus.lock.Unlock()
+
+		handler.callBack.Call(passedArguments)
+	})
 }
 
 func (bus *EventBus) doPublishAsync(handler *eventHandler, topic string, args ...interface{}) {
