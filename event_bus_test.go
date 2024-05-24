@@ -294,23 +294,3 @@ func TestNestedPublish(t *testing.T) {
 	bus.Publish("main:calculator", 20, 40)
 	bus.UnSubscribe("main:calculator", nestedFunc)
 }
-
-// WARN: Don't run this test with `run file test`, it will cause time out error
-// Please run this test alone
-// TODO To make this test work, add lock in WaitAsync(). But it will cause TestSubcribeOnceAsync() dead lock. And I don't know why?
-// func TestSubscribeAsyncWithMultipleGoroutine(t *testing.T) {
-// 	for i := 0; i < 1000; i++ {
-// 		bus := New()
-// 		bus.SubscribeAsync("topic", func() {
-// 			time.Sleep(time.Millisecond)
-// 		}, false)
-// 		bus.Publish("topic")
-
-// 		go func() {
-// 			time.Sleep(time.Millisecond)
-// 			bus.Publish("topic")
-// 		}()
-
-// 		bus.WaitAsync()
-// 	}
-// }

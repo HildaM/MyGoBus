@@ -35,9 +35,10 @@ type Bus interface {
 
 // EventBus structure for handlers and callbacks
 type EventBus struct {
-	handlers map[string][]*eventHandler
-	lock     sync.Mutex // lock for map
-	wg       sync.WaitGroup
+	handlers  map[string][]*eventHandler
+	lock      sync.Mutex // lock for map
+	asyncLock sync.Mutex // Use for WaitAsync mode only
+	wg        sync.WaitGroup
 }
 
 // eventHandler single event handler
@@ -52,9 +53,10 @@ type eventHandler struct {
 // New returns new EventBus with empty handlers.
 func New() Bus {
 	b := &EventBus{
-		make(map[string][]*eventHandler),
-		sync.Mutex{},
-		sync.WaitGroup{},
+		handlers:  make(map[string][]*eventHandler),
+		lock:      sync.Mutex{},
+		asyncLock: sync.Mutex{},
+		wg:        sync.WaitGroup{},
 	}
 	return Bus(b)
 }
@@ -180,6 +182,14 @@ func (bus *EventBus) Publish(topic string, args ...interface{}) {
 	}
 }
 
+func (bus *EventBus) doPublishAsync(handler *eventHandler, topic string, args ...interface{}) {
+	defer bus.wg.Done()
+	if handler.transactional {
+		defer handler.Unlock()
+	}
+	bus.doPublish(handler, topic, args...)
+}
+
 func (bus *EventBus) doPublish(handler *eventHandler, topic string, args ...interface{}) {
 	passedArguments := bus.setUpPublish(handler, args...)
 
@@ -202,14 +212,6 @@ func (bus *EventBus) doPublish(handler *eventHandler, topic string, args ...inte
 
 		handler.callBack.Call(passedArguments)
 	})
-}
-
-func (bus *EventBus) doPublishAsync(handler *eventHandler, topic string, args ...interface{}) {
-	defer bus.wg.Done()
-	if handler.transactional {
-		defer handler.Unlock()
-	}
-	bus.doPublish(handler, topic, args...)
 }
 
 func (bus *EventBus) setUpPublish(callback *eventHandler, args ...interface{}) []reflect.Value {
@@ -238,12 +240,5 @@ func (bus *EventBus) HasCallBack(topic string) bool {
 
 // WaitAsync waits for all async callbacks to complete
 func (bus *EventBus) WaitAsync() {
-	// Because of wg's counter can't be a negative number,
-	// if call Wait() and then call Add(1) before Wait() complete, it will throw a panic "WaitGroup is reused before previous Wait has returned".
-	// See event_test.go TestSubscribeAsyncWithMultipleGoroutine()
-
-	// TODO If add lock protect, it will cause SubcribeOnceAsync() dead lock, which cause TestSubcribeOnceAsync() failed
-	// bus.lock.Lock()
-	// defer bus.lock.Unlock()
 	bus.wg.Wait()
 }
